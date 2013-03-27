@@ -1,0 +1,10 @@
+{application, ejis,
+ [
+  {description, "JInterface Sample Application"},
+  {id, "ejis"},
+  {registered,   []},
+  {applications, [kernel,stdlib,lager]},
+  {mod, {ejis, []}},
+  {env, []}
+ ]
+}.
