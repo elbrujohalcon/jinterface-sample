@@ -31,11 +31,11 @@ start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% @doc Returns the pid of the java process
 -spec pid() -> pid().
-pid() -> gen_server:call(?LUCENE_SERVER, {pid}, ?CALL_TIMEOUT).
+pid() -> gen_server:call(?JAVA_SERVER, {pid}, ?CALL_TIMEOUT).
 
 %% @doc Stops the java process
 -spec stop() -> ok.
-stop() -> gen_server:cast(?LUCENE_SERVER, {stop}).
+stop() -> gen_server:cast(?JAVA_SERVER, {stop}).
 
 %%-------------------------------------------------------------------
 %% GEN_SERVER API
@@ -49,7 +49,8 @@ init([]) ->
     Java ->
       ThisNode = this_node(),
       JavaNode = java_node(),
-      Priv = priv_dir(application:get_application()),
+      {ok, App} = application:get_application(),
+      Priv = priv_dir(App),
       Classpath = string:join([otp_lib("/OtpErlang.jar") | filelib:wildcard(Priv ++ "/*.jar")], ":"),
       Port =
         erlang:open_port({spawn_executable, Java},
@@ -57,9 +58,23 @@ init([]) ->
                           {args, ["-classpath", Classpath,
                                   "net.inaka.ejis.EjisNode",
                                   ThisNode, JavaNode, erlang:get_cookie()]}]),
-      true = link(process()),
+      wait_for_ready(#state{java_port = Port, java_node = JavaNode})
+  end.
+
+wait_for_ready(State = #state{java_port = Port}) ->
+  receive
+    {Port, {data, {eol, "READY"}}} ->
+      _ = lager:notice("Java node started"),
+      true = link(pid()),
       true = erlang:monitor_node(State#state.java_node, true),
-      {ok, #state{java_port = Port, java_node = JavaNode}}
+      {ok, State};
+    Info ->
+      case handle_info(Info, State) of
+        {noreply, NewState} ->
+          wait_for_ready(NewState);
+        {stop, Reason, _NewState} ->
+          {stop, Reason}
+      end
   end.
 
 %% @private
